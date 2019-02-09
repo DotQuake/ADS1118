@@ -68,6 +68,20 @@ static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN 0 */
 uint16_t  data[3];
 uint8_t   rxBuffer,startStream=0;
+/*
+ * readCommand Function
+ * Parameters: 	config ----> CONFIG COMMAND TO SEND
+ * 				discardData ---> Discard The return Data from ADS1118
+ *
+ * 	Basic Idea of Function:
+ * 		Sends 16 bit length of config command to all three ADS1118.
+ * 		At the same time, if discardData==false, stores the 3 16 bit
+ * 		return data of all ADS1118 to data variable
+ *
+ * 		For Deeper information for why does the function works this
+ * 		way is to read Datasheet or Ask MEEE :D :D
+ *
+ */
 void readCommand(uint16_t config,uint8_t discardData)
 {
 	uint16_t read;
@@ -109,10 +123,14 @@ void readCommand(uint16_t config,uint8_t discardData)
 }
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
+	/*
+	 * UART RECEIVE Callback
+	 * All receive byte are received in this function
+	 * Read Byte will determine the active action of STM32 below
+	 */
   if(rxBuffer=='P'){
 	  HAL_UART_Transmit(&huart1,"Pong",4,1);
   }else if(rxBuffer=='D'){
-	  //HAL_UART_Transmit_DMA(&huart1,data,6);
 	  startStream=startStream==0?1:0;
   }
   HAL_UART_Receive_DMA(&huart1, &rxBuffer, 1);
@@ -151,17 +169,36 @@ int main(void)
   MX_DMA_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
+  //Initialize Pins
   HAL_GPIO_WritePin(READY_GPIO_Port,READY_Pin,GPIO_PIN_SET);
   HAL_GPIO_WritePin(CS_GPIO_Port,CS_Pin,GPIO_PIN_SET);
   HAL_GPIO_WritePin(SCLK_GPIO_Port,SCLK_Pin,GPIO_PIN_RESET);
   HAL_GPIO_WritePin(DOUT_GPIO_Port,DOUT_Pin,GPIO_PIN_RESET);
   DWT_Delay_Init();
   HAL_Delay(1000);
- // HAL_Delay(5000);
   HAL_GPIO_WritePin(CS_GPIO_Port,CS_Pin,GPIO_PIN_RESET);
+
+
+  /* Update Config Reg 0x04EB, refer to datasheet @ page 25 on Table 7
+  	 For more information about Config Register
+ 	 For Data Communication Please refer to Page 24 to see
+  	 How does data transfer to each other
+   */
   readCommand(0x04EB,1);
   readCommand(0x04EB,1);
+
+  /*
+   * LED LIGHT ON to determine that initialization is complete
+   * The color of the led is Yellowish and is found on the
+   * STM32 board
+   */
   HAL_GPIO_WritePin(READY_GPIO_Port,READY_Pin,GPIO_PIN_RESET);
+
+  /*
+   * Set DMA(Direct Memory Access) Receive mode for UART
+   * and Callback HAL_UART_RxCpltCallback is called everytime
+   * a Byte is received
+   */
   HAL_UART_Receive_DMA(&huart1,&rxBuffer,1);
   /* USER CODE END 2 */
 
@@ -169,15 +206,25 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+	  /*
+	   * Checks if the 3 ADS1118 Out Pin is low
+	   * if all out pins are low start reading the three data
+	   */
 	  if(HAL_GPIO_ReadPin(DIN_X_GPIO_Port,DIN_X_Pin)==GPIO_PIN_RESET)
 	  {
 		  if(HAL_GPIO_ReadPin(DIN_Y_GPIO_Port,DIN_Y_Pin)==GPIO_PIN_RESET)
 		  {
 			  if(HAL_GPIO_ReadPin(DIN_Z_GPIO_Port,DIN_Z_Pin)==GPIO_PIN_RESET)
 			  {
-				  readCommand(0x04EB,0);
-				  readCommand(0x04EB,1);
+				  readCommand(0x04EB,0);//Send Command and Read The 16 bit Data
+				  readCommand(0x04EB,1);//Send Command and Discard the return Data
 	  	  		  if(startStream==1){
+	  	  			  /*
+	  	  			   * Sends The data through bluetooth
+	  	  			   * Please refer to HAL_UART_RxCpltCallback method
+	  	  			   * above to check how does android and stm32
+	  	  			   * communicates
+	  	  			   */
 	  	  			  HAL_UART_Transmit(&huart1,data,6,1);
 				  }
 			  }
